@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Pago Stellar Testnet</title>
+  <title>Mi Primer Pago en Stellar Testnet</title>
   <style>
     body {
       font-family: sans-serif;
@@ -49,7 +49,7 @@
   <button id="conectar">Conectar wallet</button>
   <p id="cuenta">Wallet no conectada.</p>
 
-  <label for="memo">Memo opcional (máximo 28 bytes UTF-8)</label>
+  <label for="memo">Un mensajito positivo (el memo) (máximo 28 bytes UTF-8)</label>
   <input id="memo" type="text" placeholder="Escribe un mensaje corto">
 
   <button id="enviar" disabled>Enviar 0.01 XLM</button>
@@ -65,7 +65,7 @@
       signTransaction
     } from "https://esm.sh/@stellar/varial-sdk";
 
-    // CAMBIA esta dirección por una cuenta pública existente en Testnet.
+    // Esta es una direccion mia en testnet, ya está activada
     const DESTINO = "GDVT7X7WWPLTW6FNHU3TNEDEWPAJJCHZLVIE4L42BRBBMQKVUAXLEXS6";
 
     const RED = StellarSdk.Networks.TESTNET;
@@ -210,7 +210,7 @@
         mostrarEstado("Enviando a Testnet...");
         const resultado = await servidor.submitTransaction(transaccionFirmada);
 
-        mostrarEstado(`¡Pago enviado!\nHash: ${resultado.hash}`);
+        mostrarEstado(`Éxito ¡Pago enviado!\nHash: ${resultado.hash}`);
       } catch (error) {
         console.error(error);
 
