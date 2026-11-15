@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pago Stellar Testnet</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 0 16px;
+      line-height: 1.5;
+    }
+
+    button, input {
+      font: inherit;
+      padding: 10px;
+      margin: 8px 0;
+    }
+
+    input {
+      box-sizing: border-box;
+      width: 100%;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
+    #cuenta, #estado {
+      overflow-wrap: anywhere;
+    }
+
+    #estado {
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>Pago de prueba en Stellar</h1>
+  <p>Red: <strong>Testnet</strong> · Importe: <strong>0.01 XLM</strong></p>
+
+  <button id="conectar">Conectar wallet</button>
+  <p id="cuenta">Wallet no conectada.</p>
+
+  <label for="memo">Memo opcional (máximo 28 bytes UTF-8)</label>
+  <input id="memo" type="text" placeholder="Escribe un mensaje corto">
+
+  <button id="enviar" disabled>Enviar 0.01 XLM</button>
+  <p id="estado" role="status" aria-live="polite"></p>
+
+  <script type="module">
+    import * as StellarSdk from "https://esm.sh/@stellar/stellar-sdk@16";
+    import {
+      isConnected,
+      requestAccess,
+      getAddress,
+      getNetwork,
+      signTransaction
+    } from "https://esm.sh/@stellar/varial-sdk";
+
+    // CAMBIA esta dirección por una cuenta pública existente en Testnet.
+    const DESTINO = "GDVT7X7WWPLTW6FNHU3TNEDEWPAJJCHZLVIE4L42BRBBMQKVUAXLEXS6";
+
+    const RED = StellarSdk.Networks.TESTNET;
+    const servidor = new StellarSdk.Horizon.Server(
+      "https://horizon-testnet.stellar.org"
+    );
+
+    const botonConectar = document.getElementById("conectar");
+    const botonEnviar = document.getElementById("enviar");
+    const campoMemo = document.getElementById("memo");
+    const cuentaTexto = document.getElementById("cuenta");
+    const estado = document.getElementById("estado");
+
+    let direccion = null;
+
+    function mostrarEstado(mensaje) {
+      estado.textContent = mensaje;
+    }
+
+    function revisarError(error) {
+      if (error) {
+        throw new Error(error.message || String(error));
+      }
+    }
+
+    async function comprobarTestnet() {
+      const { network, error } = await getNetwork();
+      revisarError(error);
+
+      if (network !== "TESTNET") {
+        throw new Error("Selecciona Testnet en la wallet y vuelve a intentarlo.");
+      }
+    }
+
+    botonConectar.addEventListener("click", async () => {
+      botonConectar.disabled = true;
+      botonEnviar.disabled = true;
+      direccion = null;
+      cuentaTexto.textContent = "Wallet no conectada.";
+
+      try {
+        mostrarEstado("Buscando la wallet...");
+
+        const conexion = await isConnected();
+        revisarError(conexion.error);
+
+        if (!conexion.isConnected) {
+          throw new Error("No se detectó Freighter/Varial. Instala la extensión.");
+        }
+
+        // La wallet pedirá permiso para compartir la dirección pública.
+        const acceso = await requestAccess();
+        revisarError(acceso.error);
+
+        if (!acceso.address) {
+          throw new Error("La wallet no devolvió una dirección.");
+        }
+
+        await comprobarTestnet();
+
+        direccion = acceso.address;
+        cuentaTexto.textContent = `Conectada: ${direccion}`;
+        botonEnviar.disabled = false;
+        mostrarEstado("Wallet conectada a Testnet.");
+      } catch (error) {
+        mostrarEstado(`Error al conectar: ${error.message}`);
+      } finally {
+        botonConectar.disabled = false;
+      }
+    });
+
+    botonEnviar.addEventListener("click", async () => {
+      botonEnviar.disabled = true;
+      botonConectar.disabled = true;
+
+      try {
+        if (!direccion) {
+          throw new Error("Conecta primero la wallet.");
+        }
+
+        if (!StellarSdk.StrKey.isValidEd25519PublicKey(DESTINO)) {
+          throw new Error("Configura una dirección pública válida en DESTINO.");
+        }
+
+        const memo = campoMemo.value;
+        const bytesMemo = new TextEncoder().encode(memo).length;
+
+        if (bytesMemo > 28) {
+          throw new Error("El memo supera los 28 bytes UTF-8.");
+        }
+
+        // Comprueba de nuevo la red y la cuenta por si cambiaron en la wallet.
+        await comprobarTestnet();
+        const cuentaActual = await getAddress();
+        revisarError(cuentaActual.error);
+
+        if (cuentaActual.address !== direccion) {
+          direccion = null;
+          cuentaTexto.textContent = "La cuenta cambió. Conecta de nuevo.";
+          throw new Error("La cuenta de la wallet cambió.");
+        }
+
+        mostrarEstado("Preparando la transacción...");
+
+        // La cuenta de origen debe existir y tener saldo en Testnet.
+        const cuentaOrigen = await servidor.loadAccount(direccion);
+
+        const constructor = new StellarSdk.TransactionBuilder(cuentaOrigen, {
+          fee: StellarSdk.BASE_FEE,
+          networkPassphrase: RED
+        }).addOperation(
+          StellarSdk.Operation.payment({
+            destination: DESTINO,
+            asset: StellarSdk.Asset.native(),
+            amount: "0.01"
+          })
+        );
+
+        if (memo) {
+          constructor.addMemo(StellarSdk.Memo.text(memo));
+        }
+
+        const transaccion = constructor.setTimeout(180).build();
+
+        mostrarEstado("Revisa y aprueba la transacción en la wallet...");
+
+        // La firma ocurre en la wallet, no en esta página.
+        const firma = await signTransaction(transaccion.toXDR(), {
+          networkPassphrase: RED
+        });
+        revisarError(firma.error);
+
+        if (!firma.signedTxXdr) {
+          throw new Error("La wallet no devolvió una transacción firmada.");
+        }
+
+        const transaccionFirmada = StellarSdk.TransactionBuilder.fromXDR(
+          firma.signedTxXdr,
+          RED
+        );
+
+        mostrarEstado("Enviando a Testnet...");
+        const resultado = await servidor.submitTransaction(transaccionFirmada);
+
+        mostrarEstado(`¡Pago enviado!\nHash: ${resultado.hash}`);
+      } catch (error) {
+        console.error(error);
+
+        // Horizon puede devolver códigos más específicos para la transacción.
+        const codigos = error.response?.data?.extras?.result_codes;
+        const detalle = codigos ? `\nCódigos: ${JSON.stringify(codigos)}` : "";
+
+        mostrarEstado(`Error: ${error.message || String(error)}${detalle}`);
+      } finally {
+        botonConectar.disabled = false;
+        botonEnviar.disabled = !direccion;
+      }
+    });
+  </script>
+</body>
+</html>
